@@ -1,0 +1,4 @@
+{
+    "appService.defaultWebAppToDeploy": "/subscriptions/01e2f327-74ac-451e-8ad9-1f923a06d634/resourceGroups/rg-patch-master-aue/providers/Microsoft.Web/sites/patch-master-paid-wvick",
+    "appService.deploySubpath": "."
+}

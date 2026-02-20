@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Patch Scheduler Helper</title>
+    <style>
+      :root {
+        --bg: #0b1020;
+        --panel: #111933;
+        --panel-soft: #1a2549;
+        --text: #e5e7eb;
+        --muted: #9ca3af;
+        --accent: #60a5fa;
+        --accent-2: #7c3aed;
+        --ok: #22c55e;
+        --warn: #f59e0b;
+        --error: #ef4444;
+        --border: #334155;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Arial, sans-serif;
+        background: radial-gradient(circle at top right, #1e3a8a 0%, var(--bg) 42%);
+        color: var(--text);
+      }
+      .container { max-width: 1100px; margin: 0 auto; padding: 28px 20px 40px; }
+      h1 { margin: 0 0 8px; font-size: 2rem; }
+      h2 { margin-top: 0; }
+      p { color: var(--muted); }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+      .panel {
+        background: linear-gradient(180deg, var(--panel) 0%, #0f1730 100%);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 16px;
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+      }
+      .row { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; align-items: center; }
+      label { color: #d1d5db; font-size: 0.95rem; }
+      input, select, textarea {
+        background: var(--panel-soft);
+        border: 1px solid var(--border);
+        color: var(--text);
+        border-radius: 10px;
+        padding: 8px 10px;
+      }
+      button {
+        background: linear-gradient(90deg, var(--accent), var(--accent-2));
+        color: white;
+        border: 0;
+        border-radius: 10px;
+        padding: 9px 14px;
+        cursor: pointer;
+        font-weight: 600;
+      }
+      a { color: #93c5fd; text-decoration: none; font-weight: 600; }
+      textarea { width: 100%; min-height: 260px; }
+      .card { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin: 8px 0; background: #0f1833; }
+      .enabled { border-left: 6px solid var(--ok); }
+      .disabled { border-left: 6px solid var(--error); opacity: 0.85; }
+      #modeBanner { display: inline-block; margin: 0 0 14px; padding: 6px 10px; border-radius: 999px; background: #1f2937; }
+      .subtle { color: var(--muted); font-size: 0.9rem; }
+      @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Patch Scheduler Helper</h1>
+      <p class="subtle">Design Azure Update Manager schedules and generate Terraform quickly.</p>
+      <p id="modeBanner"></p>
+
+      <div class="row">
+        <a href="/.auth/login/aad">Sign in with Entra</a>
+        <a href="/.auth/logout">Sign out</a>
+      </div>
+
+      <div class="grid">
+        <section class="panel">
+          <h2>Server Selection</h2>
+          <div class="row">
+            <label><input id="enabledOnly" type="checkbox" checked /> Show enabled only</label>
+            <button id="refresh">Refresh servers</button>
+          </div>
+          <div id="servers"></div>
+        </section>
+
+        <section class="panel">
+          <h2>Maintenance Configuration</h2>
+          <div class="row"><label>Name <input id="name" value="generated-mc" /></label></div>
+          <div class="row"><label>Resource Group <input id="rg" value="rg-maintenance" /></label></div>
+          <div class="row"><label>Location <input id="location" value="westeurope" /></label></div>
+          <div class="row"><label>Patch Mode
+            <select id="patchMode"><option>Platform</option><option>User</option></select>
+          </label></div>
+          <div class="row"><label>Start DateTime <input id="startDateTime" value="2026-03-01 22:00" /></label></div>
+          <div class="row"><label>Time Zone <input id="timeZone" value="UTC" /></label></div>
+          <div class="row"><label>Recur Every <input id="recurEvery" value="1Week" /></label></div>
+          <div class="row"><label>Duration <input id="duration" value="03:00" /></label></div>
+          <div class="row"><label>Reboot
+            <select id="reboot"><option>IfRequired</option><option>Always</option><option>Never</option></select>
+          </label></div>
+          <div class="row">
+            <button id="generate">Generate Terraform</button>
+          </div>
+        </section>
+      </div>
+
+      <section class="panel" style="margin-top:18px">
+        <h2>Terraform Output</h2>
+        <textarea id="terraform" readonly></textarea>
+      </section>
+    </div>
+
+    <script>
+      async function loadConfig() {
+        const resp = await fetch("/api/config");
+        const data = await resp.json();
+        const banner = document.getElementById("modeBanner");
+        if (data.demoMode) {
+          banner.textContent = "Demo mode is ON: no Entra login required.";
+          banner.style.color = "#b54708";
+        } else if (data.user && data.user.name) {
+          banner.textContent = `Signed in as ${data.user.name}`;
+          banner.style.color = "#027a48";
+        } else {
+          banner.textContent = "Sign in required.";
+          banner.style.color = "#b42318";
+        }
+      }
+
+      async function loadServers() {
+        const enabledOnly = document.getElementById("enabledOnly").checked;
+        const resp = await fetch(`/api/servers?showEnabledOnly=${enabledOnly}`);
+        if (!resp.ok) {
+          document.getElementById("servers").innerHTML = `<div class="card disabled">Unable to load servers: ${resp.status}</div>`;
+          return;
+        }
+        const data = await resp.json();
+        const container = document.getElementById("servers");
+        container.innerHTML = "";
+        for (const server of data.servers) {
+          const el = document.createElement("div");
+          el.className = `card ${server.isUpdateManagerEnabled ? "enabled" : "disabled"}`;
+          el.innerHTML = `<strong>${server.name}</strong> (${server.osType}) - ${server.resourceGroup}
+            <div>${server.isUpdateManagerEnabled ? "Update Manager enabled" : "Not enabled"}</div>`;
+          container.appendChild(el);
+        }
+      }
+
+      async function generateTerraform() {
+        const payload = {
+          name: document.getElementById("name").value,
+          resourceGroupName: document.getElementById("rg").value,
+          location: document.getElementById("location").value,
+          inGuestUserPatchMode: document.getElementById("patchMode").value,
+          startDateTime: document.getElementById("startDateTime").value,
+          timeZone: document.getElementById("timeZone").value,
+          recurEvery: document.getElementById("recurEvery").value,
+          duration: document.getElementById("duration").value,
+          reboot: document.getElementById("reboot").value
+        };
+        const resp = await fetch("/api/terraform", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        if (!resp.ok) {
+          document.getElementById("terraform").value = `Unable to generate Terraform: ${resp.status}`;
+          return;
+        }
+        const data = await resp.json();
+        document.getElementById("terraform").value = data.terraform;
+      }
+
+      document.getElementById("refresh").addEventListener("click", loadServers);
+      document.getElementById("enabledOnly").addEventListener("change", loadServers);
+      document.getElementById("generate").addEventListener("click", generateTerraform);
+      loadConfig();
+      loadServers();
+    </script>
+  </body>
+</html>
