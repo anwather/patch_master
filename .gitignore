@@ -1,3 +1,10 @@
 node_modules
 dist
 .env
+.env.local
+api/dist
+api/node_modules
+api/local.settings.json
+.deploypkg
+.deploypkg.zip
+.azure

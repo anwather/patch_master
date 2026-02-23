@@ -1,79 +1,91 @@
-# Patch Scheduler Helper (Starter)
+# Patch Scheduler Helper
 
-This project is a starter web app for customers to sign in, list accessible servers, select patch settings, and generate Terraform for Azure Update Manager maintenance configurations.
+Sign in with Entra ID, enumerate Azure servers, configure patch schedules, and generate Terraform for Azure Update Manager maintenance configurations.
 
-## Hosting decision
+## Architecture
 
-Recommended host: **Azure App Service (Web App)** with **App Service Authentication (Easy Auth) + Microsoft Entra ID**.
+- **Frontend**: Static HTML/JS in `public/`
+- **Backend (local)**: Express server in `src/server.ts` with session-based Entra OIDC
+- **Backend (cloud)**: Azure Functions in `api/` deployed via Azure Static Web Apps
+- **Auth**: Microsoft Entra ID (local: OAuth2 code grant; cloud: SWA built-in auth + OBO flow)
 
-Why this is the best fit for this solution:
-- Native Entra sign-in integration at the platform layer.
-- Backend APIs can enforce authentication and use user context for access-aware server listing.
-- Supports full web app + API hosting in one resource, with straightforward CI/CD and scaling.
-
-## Auth model (initial)
-
-- In Azure, Easy Auth injects `X-MS-CLIENT-PRINCIPAL` headers.
-- The server reads that identity and requires auth for `/api/*`.
-- Local dev uses a mock identity when `NODE_ENV` is not `production`.
-- Demo mode can be enabled with `DEMO_MODE=true` to allow anonymous testing.
-
-## Update Manager eligibility highlighting
-
-- UI defaults to **Show enabled only**.
-- API supports `showEnabledOnly=true|false`.
-- Server data includes `isUpdateManagerEnabled`; enabled servers are highlighted.
-
-> Current implementation uses stub server data. Next step is replacing it with Azure ARM + Resource Graph queries using delegated user access.
-
-## Run locally
+## Run locally (Express server)
 
 ```bash
 npm install
 npm run dev
 ```
 
-Run in demo mode:
-
+Demo mode (no login):
 ```bash
 $env:DEMO_MODE="true"
 npm run dev
 ```
 
-Build + run:
-
+With Entra sign-in (set values in `.env.local` first):
 ```bash
-npm run build
-npm start
+npm run dev
+# Visit http://localhost:3000/auth/login
 ```
 
-## Next steps
+## Deploy to Azure Static Web Apps
 
-1. Replace `listServersForUser` with Azure SDK calls:
-   - List user-accessible VMs/Arc servers.
-   - Join with Update Manager telemetry (`patchassessmentresources`) to set `isUpdateManagerEnabled`.
-2. Add server selection and emit Terraform assignments:
-   - `azurerm_maintenance_assignment_virtual_machine` and/or dynamic scope assignment.
-3. Add secure token acquisition path for ARM/ARG calls with delegated user scopes.
-4. Enable Easy Auth in App Service and wire app registration settings for tenant-restricted Entra login.
+### Prerequisites
+- Azure CLI (`az`)
+- SWA CLI (`npm install -g @azure/static-web-apps-cli`)
+- Entra app registration with:
+  - Delegated permission: `Azure Service Management / user_impersonation` (admin consent)
+  - Delegated permission: `Microsoft Graph / User.Read`
+  - Client secret generated
 
-## Azure deployment (App Service)
-
-Use the helper script to deploy a demo instance (anonymous mode enabled):
-
+### Deploy
 ```powershell
-.\scripts\deploy-appservice.ps1 -SubscriptionId "<sub-id>" -Location "westeurope"
+.\scripts\deploy-swa.ps1 `
+    -TenantId "<tenant-id>" `
+    -ClientId "<client-id>" `
+    -ClientSecret "<client-secret>" `
+    -Location "australiaeast"
 ```
 
-After deployment, switch between demo and secure modes:
-
-```powershell
-.\scripts\set-mode.ps1 -Mode demo    # no login required
-.\scripts\set-mode.ps1 -Mode secure  # Entra login required by app APIs
+After deployment, add the redirect URI to your app registration:
+```
+https://<swa-hostname>/.auth/login/aad/callback
 ```
 
-Entra login endpoint:
+### How it works in SWA
+- SWA built-in auth handles Entra sign-in (`/.auth/login/aad`)
+- User identity passed to API via `x-ms-client-principal` header
+- ARM token acquired via MSAL On-Behalf-Of flow in the Azure Functions backend
+- `staticwebapp.config.json` enforces authentication on `/api/*` routes
 
-```text
-https://<app-name>.azurewebsites.net/.auth/login/aad
+## Project structure
+
 ```
+├── public/                    # Static frontend
+│   └── index.html
+├── src/                       # Local Express server
+│   └── server.ts
+├── api/                       # Azure Functions (SWA backend)
+│   ├── src/functions/         # Function handlers
+│   │   ├── config.ts
+│   │   ├── me.ts
+│   │   ├── servers.ts
+│   │   └── terraform.ts
+│   ├── src/shared/            # Shared modules
+│   │   ├── auth.ts
+│   │   ├── arm.ts
+│   │   ├── terraform.ts
+│   │   └── types.ts
+│   ├── host.json
+│   └── package.json
+├── staticwebapp.config.json   # SWA auth + routing config
+├── swa-cli.config.json        # Local SWA emulator config
+└── scripts/
+    └── deploy-swa.ps1         # Deployment script
+```
+
+## Required Azure permissions
+
+- **App registration**: delegated `user_impersonation` (Azure Service Management) with admin consent
+- **User RBAC**: at least Reader on subscriptions to enumerate VMs/Arc machines
+- **Arc servers**: `Microsoft.HybridCompute/machines/read` if applicable

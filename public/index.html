@@ -62,6 +62,7 @@
       .disabled { border-left: 6px solid var(--error); opacity: 0.85; }
       #modeBanner { display: inline-block; margin: 0 0 14px; padding: 6px 10px; border-radius: 999px; background: #1f2937; }
       .subtle { color: var(--muted); font-size: 0.9rem; }
+      .server-select { margin-right: 8px; transform: translateY(1px); }
       @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
     </style>
   </head>
@@ -72,8 +73,8 @@
       <p id="modeBanner"></p>
 
       <div class="row">
-        <a href="/.auth/login/aad">Sign in with Entra</a>
-        <a href="/.auth/logout">Sign out</a>
+        <button id="loginBtn" onclick="msalLogin()">Sign in with Entra</button>
+        <button id="logoutBtn" onclick="msalLogout()" style="display:none">Sign out</button>
       </div>
 
       <div class="grid">
@@ -113,26 +114,137 @@
       </section>
     </div>
 
+    <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
     <script>
-      async function loadConfig() {
-        const resp = await fetch("/api/config");
-        const data = await resp.json();
+      let msalInstance = null;
+      let armAccessToken = null;
+      let currentUser = null;
+
+      async function initMsal() {
         const banner = document.getElementById("modeBanner");
-        if (data.demoMode) {
-          banner.textContent = "Demo mode is ON: no Entra login required.";
-          banner.style.color = "#b54708";
-        } else if (data.user && data.user.name) {
-          banner.textContent = `Signed in as ${data.user.name}`;
+        try {
+          if (typeof msal === "undefined") {
+            banner.textContent = "Error: MSAL library failed to load from CDN.";
+            banner.style.color = "#ef4444";
+            return;
+          }
+
+          const configResp = await fetch("/api/config");
+          if (!configResp.ok) {
+            banner.textContent = "Error: /api/config returned " + configResp.status;
+            banner.style.color = "#ef4444";
+            return;
+          }
+          const cfg = await configResp.json();
+          if (!cfg.entraClientId || !cfg.entraTenantId) {
+            banner.textContent = "Error: missing entraClientId or entraTenantId in config.";
+            banner.style.color = "#ef4444";
+            return;
+          }
+
+          msalInstance = new msal.PublicClientApplication({
+            auth: {
+              clientId: cfg.entraClientId,
+              authority: `https://login.microsoftonline.com/${cfg.entraTenantId}`,
+              redirectUri: window.location.origin + "/"
+            },
+            cache: { cacheLocation: "sessionStorage" }
+          });
+          await msalInstance.initialize();
+
+          const accounts = msalInstance.getAllAccounts();
+          if (accounts.length > 0) {
+            currentUser = accounts[0];
+          }
+        } catch (e) {
+          console.error("MSAL init error:", e);
+          banner.textContent = "Auth init error: " + (e.message || e);
+          banner.style.color = "#ef4444";
+          msalInstance = null;
+        }
+      }
+
+      function updateUI() {
+        const banner = document.getElementById("modeBanner");
+        const loginBtn = document.getElementById("loginBtn");
+        const logoutBtn = document.getElementById("logoutBtn");
+        if (currentUser) {
+          banner.textContent = `Signed in as ${currentUser.name || currentUser.username}`;
           banner.style.color = "#027a48";
+          loginBtn.style.display = "none";
+          logoutBtn.style.display = "inline-block";
         } else {
-          banner.textContent = "Sign in required.";
+          banner.textContent = "Sign in to load your Azure servers.";
           banner.style.color = "#b42318";
+          loginBtn.style.display = "inline-block";
+          logoutBtn.style.display = "none";
+        }
+      }
+
+      async function msalLogin() {
+        if (!msalInstance) {
+          document.getElementById("modeBanner").textContent = "Auth not ready. Please refresh the page.";
+          document.getElementById("modeBanner").style.color = "#ef4444";
+          return;
+        }
+        try {
+          const result = await msalInstance.loginPopup({
+            scopes: ["openid", "profile", "https://management.azure.com/user_impersonation"]
+          });
+          currentUser = result.account;
+          armAccessToken = result.accessToken;
+          updateUI();
+          loadServers();
+        } catch (err) {
+          console.error("Login failed:", err);
+          document.getElementById("modeBanner").textContent = "Login failed: " + err.message;
+          document.getElementById("modeBanner").style.color = "#ef4444";
+        }
+      }
+
+      function msalLogout() {
+        if (!msalInstance) return;
+        msalInstance.logoutPopup();
+        currentUser = null;
+        armAccessToken = null;
+        updateUI();
+        document.getElementById("servers").innerHTML = "";
+      }
+
+      async function acquireArmToken() {
+        if (armAccessToken) return armAccessToken;
+        if (!msalInstance || !currentUser) return null;
+
+        try {
+          const result = await msalInstance.acquireTokenSilent({
+            scopes: ["https://management.azure.com/user_impersonation"],
+            account: currentUser
+          });
+          armAccessToken = result.accessToken;
+          return armAccessToken;
+        } catch (silentErr) {
+          console.log("Silent token failed, trying popup:", silentErr.message);
+          try {
+            const result = await msalInstance.acquireTokenPopup({
+              scopes: ["https://management.azure.com/user_impersonation"]
+            });
+            armAccessToken = result.accessToken;
+            return armAccessToken;
+          } catch (popupErr) {
+            console.error("ARM token acquisition failed:", popupErr);
+            return null;
+          }
         }
       }
 
       async function loadServers() {
         const enabledOnly = document.getElementById("enabledOnly").checked;
-        const resp = await fetch(`/api/servers?showEnabledOnly=${enabledOnly}`);
+        const token = await acquireArmToken();
+        const headers = {};
+        if (token) {
+          headers["X-ARM-Token"] = token;
+        }
+        const resp = await fetch(`/api/servers?showEnabledOnly=${enabledOnly}`, { headers });
         if (!resp.ok) {
           document.getElementById("servers").innerHTML = `<div class="card disabled">Unable to load servers: ${resp.status}</div>`;
           return;
@@ -140,16 +252,22 @@
         const data = await resp.json();
         const container = document.getElementById("servers");
         container.innerHTML = "";
+        if (data.servers.length === 0) {
+          container.innerHTML = '<div class="card disabled">No servers found. Sign in to load your Azure servers.</div>';
+          return;
+        }
         for (const server of data.servers) {
           const el = document.createElement("div");
           el.className = `card ${server.isUpdateManagerEnabled ? "enabled" : "disabled"}`;
-          el.innerHTML = `<strong>${server.name}</strong> (${server.osType}) - ${server.resourceGroup}
+          el.innerHTML = `<div><label><input class="server-select" type="checkbox" data-id="${server.id}" /> <strong>${server.name}</strong></label> (${server.osType}) - ${server.resourceGroup}</div>
+            <div class="subtle">${server.subscriptionName || server.subscriptionId || ""}</div>
             <div>${server.isUpdateManagerEnabled ? "Update Manager enabled" : "Not enabled"}</div>`;
           container.appendChild(el);
         }
       }
 
       async function generateTerraform() {
+        const selectedServerIds = [...document.querySelectorAll(".server-select:checked")].map((x) => x.getAttribute("data-id"));
         const payload = {
           name: document.getElementById("name").value,
           resourceGroupName: document.getElementById("rg").value,
@@ -159,7 +277,8 @@
           timeZone: document.getElementById("timeZone").value,
           recurEvery: document.getElementById("recurEvery").value,
           duration: document.getElementById("duration").value,
-          reboot: document.getElementById("reboot").value
+          reboot: document.getElementById("reboot").value,
+          selectedServerIds
         };
         const resp = await fetch("/api/terraform", {
           method: "POST",
@@ -177,8 +296,9 @@
       document.getElementById("refresh").addEventListener("click", loadServers);
       document.getElementById("enabledOnly").addEventListener("change", loadServers);
       document.getElementById("generate").addEventListener("click", generateTerraform);
-      loadConfig();
-      loadServers();
+
+      // Initialize MSAL then update UI
+      initMsal().then(() => updateUI());
     </script>
   </body>
 </html>
