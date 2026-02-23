@@ -8,3 +8,4 @@ api/local.settings.json
 .deploypkg
 .deploypkg.zip
 .azure
+.vscode
