@@ -2,12 +2,14 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 export function middleware(request: NextRequest) {
-  // Check for the next-auth session token cookie
-  const token =
-    request.cookies.get("__Secure-next-auth.session-token") ||
-    request.cookies.get("next-auth.session-token");
+  // next-auth v5 (Auth.js) uses authjs.session-token cookies
+  const hasSession = request.cookies.getAll().some(
+    (c) =>
+      c.name.includes("authjs.session-token") ||
+      c.name.includes("next-auth.session-token")
+  );
 
-  if (!token) {
+  if (!hasSession) {
     const signInUrl = new URL("/", request.url);
     return NextResponse.redirect(signInUrl);
   }

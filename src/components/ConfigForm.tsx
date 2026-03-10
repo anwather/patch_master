@@ -58,8 +58,8 @@ export function ConfigForm({
   };
 
   const fieldClass =
-    "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent";
-  const labelClass = "block text-sm font-medium text-gray-700 mb-1";
+    "w-full border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent";
+  const labelClass = "block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1";
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -110,7 +110,7 @@ export function ConfigForm({
         </div>
       </div>
 
-      <h3 className="text-sm font-semibold text-gray-800 border-b pb-1">
+      <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 border-b border-gray-200 dark:border-gray-700 pb-1">
         Schedule
       </h3>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -163,7 +163,7 @@ export function ConfigForm({
         </div>
       </div>
 
-      <h3 className="text-sm font-semibold text-gray-800 border-b pb-1">
+      <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 border-b border-gray-200 dark:border-gray-700 pb-1">
         Patch Settings
       </h3>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -189,7 +189,7 @@ export function ConfigForm({
       <button
         type="submit"
         disabled={generating || !hasSelection}
-        className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold py-2.5 px-6 rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed"
+        className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 dark:disabled:bg-gray-700 text-white font-semibold py-2.5 px-6 rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed"
       >
         {generating
           ? "Generating..."

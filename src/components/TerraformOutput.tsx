@@ -16,14 +16,14 @@ export function TerraformOutput({ code }: TerraformOutputProps) {
   };
 
   return (
-    <div className="relative">
+    <div className="relative h-full">
       <button
         onClick={handleCopy}
-        className="absolute top-3 right-3 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium py-1.5 px-3 rounded transition-colors cursor-pointer"
+        className="absolute top-3 right-3 bg-gray-700 hover:bg-gray-600 text-white text-xs font-medium py-1.5 px-3 rounded transition-colors cursor-pointer z-10"
       >
         {copied ? "Copied!" : "Copy"}
       </button>
-      <pre className="bg-gray-900 text-green-400 rounded-lg p-4 overflow-x-auto text-sm leading-relaxed">
+      <pre className="bg-gray-900 dark:bg-gray-950 text-green-400 rounded-lg p-4 overflow-auto text-sm leading-relaxed h-full min-h-[300px]">
         <code>{code}</code>
       </pre>
     </div>
