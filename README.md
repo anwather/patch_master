@@ -1,47 +1,31 @@
-# Patch Scheduler Helper
+# Patch Master
 
-Sign in with Entra ID, enumerate Azure servers, configure patch schedules, and generate Terraform for Azure Update Manager maintenance configurations.
+Azure Update Manager Scheduler & Terraform Generator built with Next.js.
 
-## Documentation
+## Features
 
-- **[User Guide](docs/user-guide.md)** — How to use the app: sign in, select servers, configure schedules, generate Terraform
-- **[Technical Guide](docs/technical-guide.md)** — Architecture, authentication flow, API reference, deployment, security
+- **Microsoft Entra ID authentication** via next-auth
+- **Azure server enumeration** — lists VMs and Arc machines across all subscriptions
+- **Maintenance configuration** — schedule, patch classifications, reboot settings
+- **Terraform generation** — produces ready-to-deploy HCL code
 
-## Quick start
+## Getting Started
 
-### Local development
+1. Copy `.env.example` to `.env.local` and fill in your Entra ID app registration values
+2. Run `npm install`
+3. Run `npm run dev`
 
-```bash
-npm install
-cp .env.local.example .env.local   # Fill in Entra values
-npm run dev                         # Visit http://localhost:3000
-```
+## Azure App Registration
 
-### Deploy to Azure
+Create an Entra ID app registration with:
+- **Redirect URI:** `http://localhost:3000/api/auth/callback/microsoft-entra-id` (dev), plus your production URL
+- **API permissions:** `Microsoft Graph / User.Read`, `Azure Service Management / user_impersonation`
+- **Client secret:** Generate one and add to `.env.local`
 
-```powershell
-.\scripts\deploy-swa.ps1 -TenantId "<tenant>" -ClientId "<client>" -ClientSecret "<secret>"
-```
+## Tech Stack
 
-See the [Technical Guide](docs/technical-guide.md#deployment) for full deployment instructions.
+- [Next.js 15](https://nextjs.org/) (App Router)
+- [next-auth v5](https://authjs.dev/) with Microsoft Entra ID provider
+- [Tailwind CSS v4](https://tailwindcss.com/)
+- [TypeScript](https://www.typescriptlang.org/)
 
-## Architecture
-
-```
-Browser (MSAL.js) ──► Entra ID popup login ──► ARM access token
-    │
-    ├── GET /api/servers  { X-ARM-Token }  ──► Azure Functions ──► ARM REST API
-    ├── POST /api/terraform                ──► Terraform HCL output
-    │
-Azure Static Web App (Standard plan)
-    ├── public/          Static frontend
-    └── api/             Azure Functions (Node.js 20)
-```
-
-## Required permissions
-
-| Scope | Purpose |
-|-------|---------|
-| `Azure Service Management / user_impersonation` | Read VMs and Arc machines |
-| `Microsoft Graph / User.Read` | Read user profile |
-| Azure RBAC Reader on subscriptions | Enumerate servers |

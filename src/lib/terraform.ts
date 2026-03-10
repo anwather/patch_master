@@ -1,14 +1,26 @@
-import { TerraformInput } from "./types.js";
+import { TerraformInput } from "./types";
 
 export function buildTerraform(input: TerraformInput): string {
-  const windowsClassifications = input.windowsClassifications ?? ["Critical", "Security", "Updates"];
-  const linuxClassifications = input.linuxClassifications ?? ["Critical", "Security"];
-  const recurEveryLine = input.recurEvery ? `    recur_every         = "${input.recurEvery}"\n` : "";
-  const durationLine = input.duration ? `    duration            = "${input.duration}"\n` : "";
+  const windowsClassifications = input.windowsClassifications ?? [
+    "Critical",
+    "Security",
+    "Updates",
+  ];
+  const linuxClassifications = input.linuxClassifications ?? [
+    "Critical",
+    "Security",
+  ];
+  const recurEveryLine = input.recurEvery
+    ? `    recur_every         = "${input.recurEvery}"\n`
+    : "";
+  const durationLine = input.duration
+    ? `    duration            = "${input.duration}"\n`
+    : "";
   const selected = input.selectedServerIds ?? [];
   const assignments = selected
     .map(
-      (id, index) => `resource "azurerm_maintenance_assignment_virtual_machine" "selected_${index + 1}" {
+      (id, index) =>
+        `resource "azurerm_maintenance_assignment_virtual_machine" "selected_${index + 1}" {
   location                     = "${input.location}"
   maintenance_configuration_id = azurerm_maintenance_configuration.generated.id
   virtual_machine_id           = "${id}"
