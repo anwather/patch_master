@@ -73,8 +73,8 @@
       <p id="modeBanner"></p>
 
       <div class="row">
-        <button id="loginBtn" onclick="msalLogin()">Sign in with Entra</button>
-        <button id="logoutBtn" onclick="msalLogout()" style="display:none">Sign out</button>
+        <button id="loginBtn" onclick="swaLogin()">Sign in with Entra</button>
+        <button id="logoutBtn" onclick="swaLogout()" style="display:none">Sign out</button>
       </div>
 
       <div class="grid">
@@ -114,53 +114,24 @@
       </section>
     </div>
 
-    <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
     <script>
-      let msalInstance = null;
-      let armAccessToken = null;
       let currentUser = null;
 
-      async function initMsal() {
-        const banner = document.getElementById("modeBanner");
+      async function checkAuth() {
         try {
-          if (typeof msal === "undefined") {
-            banner.textContent = "Error: MSAL library failed to load from CDN.";
-            banner.style.color = "#ef4444";
-            return;
-          }
-
-          const configResp = await fetch("/api/config");
-          if (!configResp.ok) {
-            banner.textContent = "Error: /api/config returned " + configResp.status;
-            banner.style.color = "#ef4444";
-            return;
-          }
-          const cfg = await configResp.json();
-          if (!cfg.entraClientId || !cfg.entraTenantId) {
-            banner.textContent = "Error: missing entraClientId or entraTenantId in config.";
-            banner.style.color = "#ef4444";
-            return;
-          }
-
-          msalInstance = new msal.PublicClientApplication({
-            auth: {
-              clientId: cfg.entraClientId,
-              authority: `https://login.microsoftonline.com/${cfg.entraTenantId}`,
-              redirectUri: window.location.origin + "/"
-            },
-            cache: { cacheLocation: "sessionStorage" }
-          });
-          await msalInstance.initialize();
-
-          const accounts = msalInstance.getAllAccounts();
-          if (accounts.length > 0) {
-            currentUser = accounts[0];
+          const resp = await fetch("/.auth/me");
+          if (!resp.ok) return;
+          const data = await resp.json();
+          const principal = data.clientPrincipal;
+          if (principal) {
+            currentUser = {
+              name: principal.userDetails,
+              objectId: (principal.claims || []).find(c => c.typ === "http://schemas.microsoft.com/identity/claims/objectidentifier")?.val,
+              tenantId: (principal.claims || []).find(c => c.typ === "http://schemas.microsoft.com/identity/claims/tenantid")?.val
+            };
           }
         } catch (e) {
-          console.error("MSAL init error:", e);
-          banner.textContent = "Auth init error: " + (e.message || e);
-          banner.style.color = "#ef4444";
-          msalInstance = null;
+          console.error("Auth check failed:", e);
         }
       }
 
@@ -169,7 +140,7 @@
         const loginBtn = document.getElementById("loginBtn");
         const logoutBtn = document.getElementById("logoutBtn");
         if (currentUser) {
-          banner.textContent = `Signed in as ${currentUser.name || currentUser.username}`;
+          banner.textContent = `Signed in as ${currentUser.name}`;
           banner.style.color = "#027a48";
           loginBtn.style.display = "none";
           logoutBtn.style.display = "inline-block";
@@ -181,70 +152,17 @@
         }
       }
 
-      async function msalLogin() {
-        if (!msalInstance) {
-          document.getElementById("modeBanner").textContent = "Auth not ready. Please refresh the page.";
-          document.getElementById("modeBanner").style.color = "#ef4444";
-          return;
-        }
-        try {
-          const result = await msalInstance.loginPopup({
-            scopes: ["openid", "profile", "https://management.azure.com/user_impersonation"]
-          });
-          currentUser = result.account;
-          armAccessToken = result.accessToken;
-          updateUI();
-          loadServers();
-        } catch (err) {
-          console.error("Login failed:", err);
-          document.getElementById("modeBanner").textContent = "Login failed: " + err.message;
-          document.getElementById("modeBanner").style.color = "#ef4444";
-        }
+      function swaLogin() {
+        window.location.href = "/.auth/login/aad?post_login_redirect_uri=" + encodeURIComponent(window.location.pathname);
       }
 
-      function msalLogout() {
-        if (!msalInstance) return;
-        msalInstance.logoutPopup();
-        currentUser = null;
-        armAccessToken = null;
-        updateUI();
-        document.getElementById("servers").innerHTML = "";
-      }
-
-      async function acquireArmToken() {
-        if (armAccessToken) return armAccessToken;
-        if (!msalInstance || !currentUser) return null;
-
-        try {
-          const result = await msalInstance.acquireTokenSilent({
-            scopes: ["https://management.azure.com/user_impersonation"],
-            account: currentUser
-          });
-          armAccessToken = result.accessToken;
-          return armAccessToken;
-        } catch (silentErr) {
-          console.log("Silent token failed, trying popup:", silentErr.message);
-          try {
-            const result = await msalInstance.acquireTokenPopup({
-              scopes: ["https://management.azure.com/user_impersonation"]
-            });
-            armAccessToken = result.accessToken;
-            return armAccessToken;
-          } catch (popupErr) {
-            console.error("ARM token acquisition failed:", popupErr);
-            return null;
-          }
-        }
+      function swaLogout() {
+        window.location.href = "/.auth/logout?post_logout_redirect_uri=" + encodeURIComponent(window.location.origin + "/");
       }
 
       async function loadServers() {
         const enabledOnly = document.getElementById("enabledOnly").checked;
-        const token = await acquireArmToken();
-        const headers = {};
-        if (token) {
-          headers["X-ARM-Token"] = token;
-        }
-        const resp = await fetch(`/api/servers?showEnabledOnly=${enabledOnly}`, { headers });
+        const resp = await fetch(`/api/servers?showEnabledOnly=${enabledOnly}`);
         if (!resp.ok) {
           document.getElementById("servers").innerHTML = `<div class="card disabled">Unable to load servers: ${resp.status}</div>`;
           return;
@@ -297,8 +215,11 @@
       document.getElementById("enabledOnly").addEventListener("change", loadServers);
       document.getElementById("generate").addEventListener("click", generateTerraform);
 
-      // Initialize MSAL then update UI
-      initMsal().then(() => updateUI());
+      // Check SWA auth then update UI
+      checkAuth().then(() => {
+        updateUI();
+        if (currentUser) loadServers();
+      });
     </script>
   </body>
 </html>

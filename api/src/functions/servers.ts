@@ -10,10 +10,7 @@ async function serversHandler(req: HttpRequest, context: InvocationContext): Pro
 
   try {
     const showEnabledOnly = req.query.get("showEnabledOnly") !== "false";
-    const hasAccessToken = !!req.headers.get("x-ms-token-aad-access-token");
-    const hasIdToken = !!req.headers.get("x-ms-token-aad-id-token");
-    const hasClientPrincipal = !!req.headers.get("x-ms-client-principal");
-    context.log(`User: ${user.name}, headers: principal=${hasClientPrincipal}, access_token=${hasAccessToken}, id_token=${hasIdToken}`);
+    context.log(`User: ${user.name}, acquiring ARM token via OBO flow`);
 
     const armToken = await getArmToken(req);
     context.log(`ARM token acquired: ${!!armToken}`);

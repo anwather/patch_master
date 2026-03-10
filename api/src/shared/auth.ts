@@ -34,25 +34,18 @@ export function getAuthUser(req: HttpRequest): AuthUser | null {
 }
 
 /**
- * Get ARM access token. Checks multiple sources:
- * 1. X-ARM-Token header (sent by frontend MSAL.js)
- * 2. x-ms-token-aad-access-token (SWA token store, if available)
- * 3. OBO flow with id token (fallback)
+ * Get ARM access token via SWA token store or OBO flow.
+ * 1. x-ms-token-aad-access-token (SWA token store — available when token store is enabled)
+ * 2. OBO flow with id token from SWA token store
  */
 export async function getArmToken(req: HttpRequest): Promise<string | null> {
-  // Frontend MSAL.js sends ARM token in custom header
-  const frontendToken = req.headers.get("x-arm-token");
-  if (frontendToken) {
-    return frontendToken;
-  }
-
-  // SWA token store (may not be available for managed functions)
+  // SWA token store provides access token when configured
   const directToken = req.headers.get("x-ms-token-aad-access-token");
   if (directToken) {
     return directToken;
   }
 
-  // Fallback: OBO with id token
+  // OBO flow with id token from SWA token store
   const idToken = req.headers.get("x-ms-token-aad-id-token");
   if (!idToken) {
     return null;
